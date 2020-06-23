@@ -8,12 +8,13 @@ from hyperopt.fmin import fmin
 import numpy as np
 from sklearn.model_selection import cross_val_score
 
-def hp_model(model,X,y,evals=100,max_iterations=500,metric=skmetrics.f1_score,dict_concat={}):
+def hp_model(model,X,y,X_eval,y_eval,evals=100,max_iterations=500,metric=skmetrics.f1_score,dict_concat={}):
     def hyperopt_xgb_score(params):
         clf = XGBClassifier(**params)
         # усреднение по 3ем фолдам, для уменьшения влияния стахостичности
         # для ускорения можно использовать train_test_split один раз
-        current_score = cross_val_score(clf, X, y,scoring=metric).mean()
+        dict_fit = {'eval_set':[(X_eval,y_eval)],'early_stopping_rounds':25,'verbose':0}
+        current_score = cross_val_score(clf, X, y,scoring=metric,fit_params=dict_fit).mean()
         #print(current_score, params)
         return -current_score
     
@@ -21,7 +22,8 @@ def hp_model(model,X,y,evals=100,max_iterations=500,metric=skmetrics.f1_score,di
         clf = LGBMClassifier(**params)
         # усреднение по 3ем фолдам, для уменьшения влияния стахостичности
         # для ускорения можно использовать train_test_split один раз
-        current_score = cross_val_score(clf, X, y,scoring=metric).mean()
+        dict_fit = {'eval_set':[(X_eval,y_eval)],'early_stopping_rounds':25,'verbose':0}
+        current_score = cross_val_score(clf, X, y,scoring=metric,fit_params=dict_fit).mean()
         #print(current_score, params)
         return -current_score
     
@@ -29,7 +31,8 @@ def hp_model(model,X,y,evals=100,max_iterations=500,metric=skmetrics.f1_score,di
         clf = CatBoostClassifier(**params)
         # усреднение по 3ем фолдам, для уменьшения влияния стахостичности
         # для ускорения можно использовать train_test_split один раз
-        current_score = cross_val_score(clf, X, y,scoring=metric).mean()
+        dict_fit = {'eval_set':[(X_eval,y_eval)],'early_stopping_rounds':25,'verbose':0}
+        current_score = cross_val_score(clf, X, y,scoring=metric,fit_params=dict_fit).mean()
         #print(current_score, params)
         return -current_score
     
@@ -50,7 +53,7 @@ def hp_model(model,X,y,evals=100,max_iterations=500,metric=skmetrics.f1_score,di
             'gamma': hp.uniform('gamma', 0.0, 1.0),
             'min_child_weight': hp.choice('min_child_weight', np.arange(1,13,1)),
             'subsample': hp.uniform('subsample', 0.3, 1.0),
-            'n_estimators': hp.choice('n_estimators', np.arange(100, max_iterations,25)),
+            'n_estimators': max_iterations,
             'tree_method': 'gpu_hist',
             'predictor': 'gpu_predictor'
         }
@@ -58,9 +61,8 @@ def hp_model(model,X,y,evals=100,max_iterations=500,metric=skmetrics.f1_score,di
         best = fmin(fn=hyperopt_xgb_score, space=space, algo=tpe.suggest, max_evals=evals)
         best['max_depth'] = np.arange(3,13,1)[best['max_depth']]
         best['min_child_weight'] = np.arange(1,13,1)[best['min_child_weight']]
-        best['n_estimators'] = np.arange(100,max_iterations,25)[best['n_estimators']]
         res = XGBClassifier(**best)
-        res.fit(X,y)
+        res.fit(X,y,eval_set=[(X_eval,y_eval)],early_stopping_rounds=25,verbose=0)
         
     if model == 'lgb':
         space = {
@@ -72,16 +74,15 @@ def hp_model(model,X,y,evals=100,max_iterations=500,metric=skmetrics.f1_score,di
             'gamma': hp.uniform('gamma', 0.0, 1.0),
             'min_child_weight': hp.choice('min_child_weight', np.arange(1,13,1)),
             'subsample': hp.uniform('subsample', 0.3, 1.0),
-            'n_estimators': hp.choice('n_estimators', range(100, max_iterations,25)),
+            'n_estimators':max_iterations,
         }
         space.update(dict_concat)
         best = fmin(fn=hyperopt_lgb_score, space=space, algo=tpe.suggest, max_evals=evals)
         best['max_depth'] = np.arange(3,13,1)[best['max_depth']]
         best['num_leaves'] = np.arange(20,201,5)[best['num_leaves']]
         best['min_child_weight'] = np.arange(1,13,1)[best['min_child_weight']]
-        best['n_estimators'] = np.arange(100,max_iterations,25)[best['n_estimators']]
         res = LGBMClassifier(**best)
-        res.fit(X,y)
+        res.fit(X,y,eval_set=[(X_eval,y_eval)],early_stopping_rounds=25,verbose=0)
         
     if model == 'ctb':
         space = {
@@ -89,15 +90,14 @@ def hp_model(model,X,y,evals=100,max_iterations=500,metric=skmetrics.f1_score,di
             'learning_rate': hp.uniform('learning_rate', 0.001, 0.1),
             'colsample_bylevel': hp.uniform('colsample_bylevel', 0.3, 1.0),
             'l2_leaf_reg': hp.uniform('l2_leaf_reg', 0.0, 1.0),
-            'n_estimators': hp.choice('n_estimators', range(100, max_iterations,25)),
+            'n_estimators': max_iterations,
             'verbose': 0
         }
         space.update(dict_concat)
         best = fmin(fn=hyperopt_ctb_score, space=space, algo=tpe.suggest, max_evals=evals)
         best['max_depth'] = np.arange(3,13,1)[best['max_depth']]
-        best['n_estimators'] = np.arange(100,max_iterations,25)[best['n_estimators']]
         res = CatBoostClassifier(**best)
-        res.fit(X,y,verbose=False)
+        res.fit(X,y,eval_set=[(X_eval,y_eval)],early_stopping_rounds=25,verbose=False)
         
     if model == 'rf':
         space = {
